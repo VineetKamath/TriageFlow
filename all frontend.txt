@@ -1,0 +1,1914 @@
+
+===== FILE: frontend/src/App.jsx =====
+import React, { useEffect, useState, useRef } from 'react';
+import axios from 'axios';
+import PressureMap from './components/PressureMap';
+import SuggestionQueue from './components/SuggestionQueue';
+import UnitTracker from './components/UnitTracker';
+import IncidentFeed from './components/IncidentFeed';
+import ZoneDrillDown from './components/ZoneDrillDown';
+import ComparisonPanel from './components/ComparisonPanel';
+import LandingOverlay from './components/LandingOverlay';
+import PostCrisisReviewPanel from './components/PostCrisisReviewPanel';
+import SDGPanel from './components/SDGPanel';
+import FeedbackWidget from './components/FeedbackWidget';
+import './App.css';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws';
+
+export default function App() {
+  const query = new URLSearchParams(window.location.search);
+  const isAutoDemoMode = query.get('autodemo') === 'true';
+  const isDemoNarrationMode = query.get('demo') === 'true';
+
+  const [appState, setAppState] = useState({
+    zones: [],
+    units: [],
+    suggestions: [],
+    incidents: [],
+  });
+  
+  const [isComparisonOpen, setIsComparisonOpen] = useState(false);
+  const [isPostCrisisOpen, setIsPostCrisisOpen] = useState(false);
+  const [isImpactOpen, setIsImpactOpen] = useState(false);
+  const [acceptedCount, setAcceptedCount] = useState(0);
+  
+  const [selectedZoneId, setSelectedZoneId] = useState(null);
+  const [isFloodLoading, setIsFloodLoading] = useState(false);
+  const [isResetLoading, setIsResetLoading] = useState(false);
+  
+  const [notifiedIds, setNotifiedIds] = useState(new Set());
+  const [notificationCount, setNotificationCount] = useState(0);
+  const [mapAnimations, setMapAnimations] = useState([]);
+  
+  const [isFlashingQueue, setIsFlashingQueue] = useState(false);
+  const previousRedCountRef = useRef(0);
+  const [showLandingOverlay, setShowLandingOverlay] = useState(!isAutoDemoMode);
+  const [feedbackSummary, setFeedbackSummary] = useState(null);
+  const [demoCallouts, setDemoCallouts] = useState([]);
+
+  const [wsStatus, setWsStatus] = useState('reconnecting');
+  const reconnectDelayRef = useRef(3000);
+  const MAX_RECONNECT_DELAY_MS = 15000;
+
+  const wsRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
+  const hasStartedRef = useRef(false);
+  const zone12StatusRef = useRef(null);
+  const suggestionCountRef = useRef(0);
+  const acceptedCountRef = useRef(0);
+  const pendingSuggestionsRef = useRef([]);
+
+  const connectWebSocket = () => {
+    if (!hasStartedRef.current) return;
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+
+    const ws = new WebSocket(WS_URL);
+    
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+      setWsStatus('connected');
+      reconnectDelayRef.current = 3000; // Reset delay on successful connection
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setAppState(data);
+      } catch (e) {
+        console.error("Failed to parse websocket message", e);
+      }
+    };
+
+    ws.onclose = () => {
+      setWsStatus('reconnecting');
+      console.log(`WebSocket closed. Reconnecting in ${reconnectDelayRef.current/1000}s...`);
+      reconnectTimeoutRef.current = setTimeout(connectWebSocket, reconnectDelayRef.current);
+      
+      // Exponential backoff up to 15s
+      reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, MAX_RECONNECT_DELAY_MS);
+    };
+
+    ws.onerror = (err) => {
+      console.error('WebSocket error:', err);
+      ws.close();
+    };
+
+    wsRef.current = ws;
+  };
+
+  useEffect(() => {
+    return () => {
+      hasStartedRef.current = false;
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const startDashboardSession = async ({ runDemo = false } = {}) => {
+    if (hasStartedRef.current) return;
+    hasStartedRef.current = true;
+    setShowLandingOverlay(false);
+    connectWebSocket();
+    try {
+      const res = await axios.get(`${API_BASE_URL}/state`);
+      setAppState(res.data);
+    } catch (err) {
+      console.error("Failed to fetch initial state", err);
+    }
+    if (runDemo) {
+      setTimeout(async () => {
+        try {
+          await axios.post('http://localhost:8000/simulate/flood');
+        } catch (e) {
+          console.error("Failed to start flood scenario from landing overlay", e);
+        }
+      }, 2000);
+    }
+  };
+
+  const showDemoCallout = (text) => {
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    setDemoCallouts((prev) => [...prev, { id, text }]);
+    setTimeout(() => {
+      setDemoCallouts((prev) => prev.filter((item) => item.id !== id));
+    }, 5500);
+  };
+
+  useEffect(() => {
+    pendingSuggestionsRef.current = appState.suggestions || [];
+  }, [appState.suggestions]);
+
+  useEffect(() => {
+    if (!isAutoDemoMode) return;
+    let openTimer;
+    let acceptTimer;
+    let retryTimer;
+
+    const run = async () => {
+      await startDashboardSession({ runDemo: false });
+      try {
+        await axios.post(`${API_BASE_URL}/simulate/flood`);
+      } catch (e) {
+        console.error('Autodemo failed to start flood scenario', e);
+      }
+      openTimer = setTimeout(() => {
+        setSelectedZoneId(12);
+      }, 180000);
+      acceptTimer = setTimeout(() => {
+        const firstSuggestion = pendingSuggestionsRef.current?.[0];
+        if (firstSuggestion) {
+          handleAcceptSuggestion(firstSuggestion.id);
+          return;
+        }
+        // If suggestion is not present right at T+3m30s, retry briefly.
+        let attempts = 0;
+        retryTimer = setInterval(() => {
+          attempts += 1;
+          const pending = pendingSuggestionsRef.current?.[0];
+          if (pending) {
+            handleAcceptSuggestion(pending.id);
+            clearInterval(retryTimer);
+          } else if (attempts >= 10) {
+            clearInterval(retryTimer);
+          }
+        }, 2000);
+      }, 210000);
+    };
+
+    run();
+    return () => {
+      if (openTimer) clearTimeout(openTimer);
+      if (acceptTimer) clearTimeout(acceptTimer);
+      if (retryTimer) clearInterval(retryTimer);
+    };
+  }, [isAutoDemoMode]);
+
+  useEffect(() => {
+    const currentRedCount = appState.zones.filter(z => z.status === 'red').length;
+    if (currentRedCount > previousRedCountRef.current) {
+      setIsFlashingQueue(true);
+      setTimeout(() => setIsFlashingQueue(false), 1000);
+    }
+    previousRedCountRef.current = currentRedCount;
+  }, [appState.zones]);
+
+  useEffect(() => {
+    if (!isDemoNarrationMode) return;
+    const zone12 = appState.zones.find((z) => z.id === 12);
+    const currentStatus = zone12?.status || null;
+    const previousStatus = zone12StatusRef.current;
+    if (currentStatus === 'amber' && previousStatus !== 'amber' && previousStatus !== null) {
+      showDemoCallout('Shadow demand spike detected');
+    }
+    zone12StatusRef.current = currentStatus;
+  }, [appState.zones, isDemoNarrationMode]);
+
+  useEffect(() => {
+    if (!isDemoNarrationMode) return;
+    const currentCount = appState.suggestions.length;
+    if (currentCount > suggestionCountRef.current) {
+      showDemoCallout('Pre-emptive reallocation suggested — 4 min early');
+    }
+    suggestionCountRef.current = currentCount;
+  }, [appState.suggestions, isDemoNarrationMode]);
+
+  useEffect(() => {
+    if (!isDemoNarrationMode) return;
+    if (acceptedCount > acceptedCountRef.current) {
+      showDemoCallout('Units repositioned before first call');
+    }
+    acceptedCountRef.current = acceptedCount;
+  }, [acceptedCount, isDemoNarrationMode]);
+
+  useEffect(() => {
+    axios.get(`${API_BASE_URL}/feedback`)
+      .then((res) => setFeedbackSummary(res.data))
+      .catch((err) => console.error('Failed to fetch feedback summary', err));
+  }, []);
+
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  useEffect(() => {
+    const checkNotifications = () => {
+      appState.suggestions.forEach(s => {
+        if (!notifiedIds.has(s.id)) {
+          const elapsed = (Date.now() - new Date(s.created_at).getTime()) / 1000;
+          if (elapsed >= 60) {
+            setNotifiedIds(prev => new Set(prev).add(s.id));
+            setNotificationCount(prev => prev + 1);
+            if ("Notification" in window && Notification.permission === "granted") {
+              const zoneName = appState.zones.find(z => z.id === s.zone_id)?.name || s.zone_id;
+              new Notification("TriageFlow Alert", {
+                body: `Zone ${zoneName} critical — suggestion pending 60s`,
+              });
+            }
+          }
+        }
+      });
+    };
+    
+    checkNotifications();
+    const interval = setInterval(checkNotifications, 1000);
+    return () => clearInterval(interval);
+  }, [appState.suggestions, notifiedIds, appState.zones]);
+
+  const handleRunFlood = async () => {
+    setIsFloodLoading(true);
+    try {
+      await axios.post(`${API_BASE_URL}/simulate/flood`);
+    } catch (e) {
+      console.error("Failed to start flood scenario", e);
+    }
+    setTimeout(() => setIsFloodLoading(false), 1000);
+  };
+
+  const handleReset = async () => {
+    setIsResetLoading(true);
+    try {
+      await axios.post(`${API_BASE_URL}/simulate/reset`);
+      setSelectedZoneId(null);
+      setAcceptedCount(0);
+      setMapAnimations([]);
+      setNotifiedIds(new Set());
+      setNotificationCount(0);
+    } catch (e) {
+      console.error("Failed to reset scenario", e);
+    }
+    setTimeout(() => setIsResetLoading(false), 1000);
+  };
+
+  const handleAcceptSuggestion = async (id) => {
+    try {
+      const suggestion = appState.suggestions.find(s => s.id === id);
+      if (suggestion && suggestion.unit_ids.length > 0) {
+        const unit = appState.units.find(u => u.id === suggestion.unit_ids[0]);
+        if (unit) {
+          const newAnim = {
+            id: Date.now().toString(),
+            sourceZoneId: unit.zone_id,
+            targetZoneId: suggestion.zone_id,
+            timestamp: Date.now()
+          };
+          setMapAnimations(prev => [...prev, newAnim]);
+          // Remove animation after 1.5s
+          setTimeout(() => {
+            setMapAnimations(prev => prev.filter(a => a.id !== newAnim.id));
+          }, 1500);
+        }
+      }
+      
+      await axios.post(`${API_BASE_URL}/suggestions/${id}/accept`);
+      setAcceptedCount(prev => prev + 1);
+    } catch (e) {
+      console.error("Failed to accept suggestion", e);
+    }
+  };
+
+  const handleDismissSuggestion = async (id) => {
+    try {
+      await axios.post(`${API_BASE_URL}/suggestions/${id}/dismiss`);
+    } catch (e) {
+      console.error("Failed to dismiss suggestion", e);
+    }
+  };
+
+  const selectedZoneData = appState.zones.find(z => z.id === selectedZoneId);
+
+  const zonesCritical = appState.zones.filter(z => z.status === 'red').length;
+  const suggestionsPending = appState.suggestions.length;
+  const unitsDeployed = appState.units.filter(u => u.status !== 'available').length;
+  const minutesSaved = acceptedCount * 7;
+  const zonesProtected = appState.zones.filter(z => z.status !== 'red').length;
+  const unitsOptimallyPositioned = appState.units.filter((u) => {
+    const zone = appState.zones.find((z) => z.id === u.zone_id);
+    return u.status === 'available' && zone && zone.status !== 'red';
+  }).length;
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      const key = event.key.toLowerCase();
+      if (showLandingOverlay) {
+        return;
+      }
+      if (key === 'f') {
+        event.preventDefault();
+        handleRunFlood();
+      } else if (key === 'r') {
+        event.preventDefault();
+        handleReset();
+      } else if (key === 'a') {
+        event.preventDefault();
+        const firstSuggestion = appState.suggestions?.[0];
+        if (firstSuggestion) {
+          handleAcceptSuggestion(firstSuggestion.id);
+        }
+      } else if (key === 'c') {
+        event.preventDefault();
+        setIsComparisonOpen((prev) => !prev);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        setSelectedZoneId(null);
+        setIsComparisonOpen(false);
+        setIsPostCrisisOpen(false);
+        setIsImpactOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [appState.suggestions, showLandingOverlay]);
+
+  return (
+    <div className="min-h-screen bg-[#0f1117] text-[#e8e6e0] flex flex-col font-sans operations-bg relative">
+      {showLandingOverlay && (
+        <LandingOverlay
+          onStartDashboard={() => startDashboardSession({ runDemo: false })}
+          onRunDemo={() => startDashboardSession({ runDemo: true })}
+          feedbackSummary={feedbackSummary}
+        />
+      )}
+      {/* Header */}
+      <header className="h-16 border-b border-[#2a2d3a] bg-[#1a1d27] flex items-center justify-between px-6 shrink-0">
+        <div className="flex items-center gap-8">
+          <div className="flex items-center gap-3">
+            <div className={`w-2.5 h-2.5 rounded-full ${wsStatus === 'connected' ? 'bg-[#1D9E75] shadow-[0_0_8px_#1D9E75]' : 'bg-[#E24B4A] animate-pulse'}`} />
+            <h1 className="text-xl font-bold tracking-wide">TriageFlow Command Center</h1>
+          </div>
+          
+          {/* Live Counters */}
+          <div className="flex gap-6 border-l border-[#2a2d3a] pl-8">
+            <div className="flex flex-col items-center">
+              <span className="text-2xl font-medium leading-none text-[#e8e6e0] tabular-nums">{zonesCritical}</span>
+              <span className="text-xs font-semibold text-[#E24B4A] uppercase mt-1">Zones Critical</span>
+            </div>
+            <div className="flex flex-col items-center">
+              <span className="text-2xl font-medium leading-none text-[#e8e6e0] tabular-nums">{suggestionsPending}</span>
+              <span className="text-xs font-semibold text-[#BA7517] uppercase mt-1">Suggestions Pending</span>
+            </div>
+            <div className="flex flex-col items-center">
+              <span className="text-2xl font-medium leading-none text-[#e8e6e0] tabular-nums">{unitsDeployed}</span>
+              <span className="text-xs font-semibold text-[#3b82f6] uppercase mt-1">Units Deployed</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="relative mr-4 flex items-center justify-center text-[#888780]">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            </svg>
+            {notificationCount > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-[#E24B4A] text-[10px] font-bold text-white">
+                {notificationCount}
+              </span>
+            )}
+          </div>
+
+          {acceptedCount > 0 && (
+            <button 
+              onClick={() => setIsComparisonOpen(true)}
+              className="bg-[#1D9E75] hover:bg-[#157a5a] text-white px-4 py-2 rounded font-medium transition-colors"
+            >
+              Impact Analysis
+            </button>
+          )}
+          <button
+            onClick={() => setIsPostCrisisOpen(true)}
+            className="bg-[#2d3f5c] hover:bg-[#38527a] text-white px-4 py-2 rounded font-medium transition-colors"
+          >
+            Post-Crisis Review
+          </button>
+          <button
+            onClick={() => setIsImpactOpen(true)}
+            className="bg-[#4b5563] hover:bg-[#374151] text-white px-4 py-2 rounded font-medium transition-colors"
+          >
+            Impact
+          </button>
+          <button 
+            onClick={handleRunFlood}
+            disabled={isFloodLoading}
+            className="bg-[#BA7517] hover:bg-[#9a6012] text-white px-4 py-2 rounded font-medium transition-colors disabled:opacity-70 flex items-center gap-2"
+          >
+            {isFloodLoading ? <span className="spinner" /> : 'Run Flood Scenario'}
+          </button>
+          <button 
+            onClick={handleReset}
+            disabled={isResetLoading}
+            className="bg-[#2a2d3a] hover:bg-[#3a3d4a] text-white px-4 py-2 rounded font-medium transition-colors disabled:opacity-70 flex items-center gap-2"
+          >
+            {isResetLoading ? <span className="spinner" /> : 'Reset'}
+          </button>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 flex overflow-hidden p-6 gap-6 relative">
+        {/* Left Column - Map (65%) */}
+        <div className="w-[65%] h-full flex flex-col">
+          <PressureMap 
+            zones={appState.zones} 
+            units={appState.units} 
+            onZoneClick={setSelectedZoneId} 
+            mapAnimations={mapAnimations}
+          />
+        </div>
+
+        {/* Right Column - Dashboards (35%) */}
+        <div className="w-[35%] h-full flex flex-col overflow-y-auto pr-2 custom-scrollbar">
+          <SuggestionQueue 
+            suggestions={appState.suggestions} 
+            zones={appState.zones}
+            onAccept={handleAcceptSuggestion} 
+            onDismiss={handleDismissSuggestion} 
+            hasRedZone={isFlashingQueue}
+          />
+          <UnitTracker units={appState.units} />
+          <IncidentFeed incidents={appState.incidents} />
+        </div>
+
+        {/* Zone Drill-Down Panel */}
+        <ZoneDrillDown 
+          zoneId={selectedZoneId} 
+          zoneData={selectedZoneData} 
+          onClose={() => setSelectedZoneId(null)} 
+        />
+        
+        {/* Comparison Panel */}
+        <ComparisonPanel 
+          isOpen={isComparisonOpen} 
+          onClose={() => setIsComparisonOpen(false)} 
+        />
+        <PostCrisisReviewPanel
+          isOpen={isPostCrisisOpen}
+          onClose={() => setIsPostCrisisOpen(false)}
+          zones={appState.zones}
+        />
+        <SDGPanel
+          isOpen={isImpactOpen}
+          onClose={() => setIsImpactOpen(false)}
+          minutesSaved={minutesSaved}
+          zonesProtected={zonesProtected}
+          unitsOptimallyPositioned={unitsOptimallyPositioned}
+          zones={appState.zones}
+        />
+      </main>
+      {!showLandingOverlay && (
+        <div className="fixed bottom-3 left-4 text-[11px] tracking-wider text-[#676660] z-[2500]">
+          shortcuts: F R A C
+        </div>
+      )}
+      {isDemoNarrationMode && demoCallouts.length > 0 && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[3200] flex flex-col gap-2 items-center pointer-events-none">
+          {demoCallouts.map((c) => (
+            <div
+              key={c.id}
+              className="px-4 py-2 rounded-md border border-[#2a2d3a] bg-[#11141d]/95 text-[#d7d4cb] text-sm shadow-lg animate-[fadeInOut_5.4s_ease-in-out_forwards]"
+            >
+              {c.text}
+            </div>
+          ))}
+        </div>
+      )}
+      <FeedbackWidget />
+
+      <style>{`
+        .spinner {
+          border: 2px solid rgba(255,255,255,0.3);
+          border-left-color: #fff;
+          border-radius: 50%;
+          width: 16px;
+          height: 16px;
+          animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #2a2d3a; border-radius: 10px; }
+        .tabular-nums { font-variant-numeric: tabular-nums; }
+        @keyframes fadeInOut {
+          0% { opacity: 0; transform: translateY(6px); }
+          12% { opacity: 1; transform: translateY(0); }
+          82% { opacity: 1; transform: translateY(0); }
+          100% { opacity: 0; transform: translateY(-6px); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+===== FILE: frontend/src/App.css =====
+.counter {
+  font-size: 16px;
+  padding: 5px 10px;
+  border-radius: 5px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 2px solid transparent;
+  transition: border-color 0.3s;
+  margin-bottom: 24px;
+
+  &:hover {
+    border-color: var(--accent-border);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+.hero {
+  position: relative;
+
+  .base,
+  .framework,
+  .vite {
+    inset-inline: 0;
+    margin: 0 auto;
+  }
+
+  .base {
+    width: 170px;
+    position: relative;
+    z-index: 0;
+  }
+
+  .framework,
+  .vite {
+    position: absolute;
+  }
+
+  .framework {
+    z-index: 1;
+    top: 34px;
+    height: 28px;
+    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
+      scale(1.4);
+  }
+
+  .vite {
+    z-index: 0;
+    top: 107px;
+    height: 26px;
+    width: auto;
+    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
+      scale(0.8);
+  }
+}
+
+#center {
+  display: flex;
+  flex-direction: column;
+  gap: 25px;
+  place-content: center;
+  place-items: center;
+  flex-grow: 1;
+
+  @media (max-width: 1024px) {
+    padding: 32px 20px 24px;
+    gap: 18px;
+  }
+}
+
+#next-steps {
+  display: flex;
+  border-top: 1px solid var(--border);
+  text-align: left;
+
+  & > div {
+    flex: 1 1 0;
+    padding: 32px;
+    @media (max-width: 1024px) {
+      padding: 24px 20px;
+    }
+  }
+
+  .icon {
+    margin-bottom: 16px;
+    width: 22px;
+    height: 22px;
+  }
+
+  @media (max-width: 1024px) {
+    flex-direction: column;
+    text-align: center;
+  }
+}
+
+#docs {
+  border-right: 1px solid var(--border);
+
+  @media (max-width: 1024px) {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+#next-steps ul {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  gap: 8px;
+  margin: 32px 0 0;
+
+  .logo {
+    height: 18px;
+  }
+
+  a {
+    color: var(--text-h);
+    font-size: 16px;
+    border-radius: 6px;
+    background: var(--social-bg);
+    display: flex;
+    padding: 6px 12px;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    transition: box-shadow 0.3s;
+
+    &:hover {
+      box-shadow: var(--shadow);
+    }
+    .button-icon {
+      height: 18px;
+      width: 18px;
+    }
+  }
+
+  @media (max-width: 1024px) {
+    margin-top: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+
+    li {
+      flex: 1 1 calc(50% - 8px);
+    }
+
+    a {
+      width: 100%;
+      justify-content: center;
+      box-sizing: border-box;
+    }
+  }
+}
+
+#spacer {
+  height: 88px;
+  border-top: 1px solid var(--border);
+  @media (max-width: 1024px) {
+    height: 48px;
+  }
+}
+
+.ticks {
+  position: relative;
+  width: 100%;
+
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    top: -4.5px;
+    border: 5px solid transparent;
+  }
+
+  &::before {
+    left: 0;
+    border-left-color: var(--border);
+  }
+  &::after {
+    right: 0;
+    border-right-color: var(--border);
+  }
+}
+
+@keyframes pulse-red {
+  0% { fill-opacity: 0.4; }
+  50% { fill-opacity: 0.8; }
+  100% { fill-opacity: 0.4; }
+}
+.animate-pulse-red {
+  animation: pulse-red 0.2s linear 3;
+}
+@keyframes dash-flow {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.operations-bg {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.02) 0px,
+    rgba(255, 255, 255, 0.02) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+.zone-polygon {
+  transition: fill 1.5s ease, background-color 1.5s ease;
+}
+
+===== FILE: frontend/src/index.css =====
+@import "tailwindcss";
+
+:root {
+  background-color: #0f1117;
+  color: #e8e6e0;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+}
+
+===== FILE: frontend/src/main.jsx =====
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
+
+createRoot(document.getElementById('root')).render(
+  <StrictMode>
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  </StrictMode>,
+)
+
+===== FILE: frontend/src/components/LandingOverlay.jsx =====
+import React from 'react';
+
+export default function LandingOverlay({ onStartDashboard, onRunDemo, feedbackSummary }) {
+  const liveDemoUrl = import.meta.env.VITE_LIVE_DEMO_URL || 'https://your-live-demo-url.web.app';
+  return (
+    <div className="fixed inset-0 z-[4000] bg-[#0f1117] flex items-center justify-center">
+      <div className="text-center px-6">
+        <h1 className="text-[#e8e6e0] text-[48px] leading-tight font-bold tracking-wide">
+          TriageFlow
+        </h1>
+        <p className="text-[#b8b6af] text-lg mt-4 mb-10">
+          Predict the crisis. Not just respond to it.
+        </p>
+        {feedbackSummary?.total_testers > 0 && (
+          <div className="inline-block mb-6 px-4 py-2 rounded-full border border-[#2a2d3a] bg-[#11141d] text-[#d7d4cb] text-sm">
+            {feedbackSummary.total_testers} testers, {feedbackSummary.trust_yes_percent}% would trust
+          </div>
+        )}
+        <p className="text-sm text-[#8ab4f8] mb-6">
+          Live demo: <a className="underline" href={liveDemoUrl} target="_blank" rel="noreferrer">{liveDemoUrl}</a>
+        </p>
+        <div className="flex items-center justify-center gap-4">
+          <button
+            onClick={onStartDashboard}
+            className="bg-[#1D9E75] hover:bg-[#157a5a] text-white px-6 py-3 rounded-md font-medium transition-colors"
+          >
+            Start Dashboard
+          </button>
+          <button
+            onClick={onRunDemo}
+            className="bg-[#BA7517] hover:bg-[#9a6012] text-white px-6 py-3 rounded-md font-medium transition-colors"
+          >
+            Run Demo Scenario
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+===== FILE: frontend/src/components/FeedbackWidget.jsx =====
+import React, { useMemo, useState } from 'react';
+import axios from 'axios';
+
+const STORAGE_KEY = 'triageflow_feedback';
+const SESSION_KEY = 'triageflow_session_id';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
+function getSessionId() {
+  let sessionId = localStorage.getItem(SESSION_KEY);
+  if (!sessionId) {
+    sessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    localStorage.setItem(SESSION_KEY, sessionId);
+  }
+  return sessionId;
+}
+
+function getStoredFeedback() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+export default function FeedbackWidget() {
+  const sessionId = useMemo(() => getSessionId(), []);
+  const initial = useMemo(() => getStoredFeedback()[sessionId] || {}, [sessionId]);
+
+  const [isOpen, setIsOpen] = useState(false);
+  const [clarity, setClarity] = useState(initial.flood_warning_clarity || '');
+  const [trust, setTrust] = useState(initial.trust_level || '');
+  const [confusedMost, setConfusedMost] = useState(initial.confused_most || '');
+  const [saved, setSaved] = useState(false);
+
+  const saveFeedback = async () => {
+    if (!clarity || !trust || !confusedMost) return;
+    const payload = {
+      session_id: sessionId,
+      flood_warning_clarity: Number(clarity),
+      trust_level: trust,
+      confused_most: confusedMost,
+    };
+    try {
+      const all = getStoredFeedback();
+      all[sessionId] = payload;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+      await axios.post(`${API_BASE_URL}/feedback`, payload);
+      setSaved(true);
+      setTimeout(() => {
+        setSaved(false);
+        setIsOpen(false);
+      }, 900);
+    } catch (e) {
+      console.error('Failed to save feedback', e);
+    }
+  };
+
+  return (
+    <>
+      <button
+        onClick={() => setIsOpen(true)}
+        className="fixed bottom-4 right-4 z-[2600] w-10 h-10 rounded-full bg-[#2d3f5c] hover:bg-[#38527a] text-white text-lg font-bold shadow-lg transition-colors"
+        aria-label="Open feedback"
+      >
+        ?
+      </button>
+
+      {isOpen && (
+        <div className="fixed inset-0 z-[3000] bg-black/50 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-[#1a1d27] border border-[#2a2d3a] rounded-lg p-5">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-[#e8e6e0]">Quick Feedback</h3>
+              <button onClick={() => setIsOpen(false)} className="text-[#888780] hover:text-[#e8e6e0] text-xl">&times;</button>
+            </div>
+
+            <Question label="1. How clear was the flood warning?">
+              {[1, 2, 3, 4, 5].map((v) => (
+                <Radio
+                  key={v}
+                  name="clarity"
+                  value={String(v)}
+                  checked={clarity === String(v)}
+                  onChange={setClarity}
+                  label={'★'.repeat(v)}
+                />
+              ))}
+            </Question>
+
+            <Question label="2. Would you trust this system in a real emergency?">
+              {['Yes', 'Maybe', 'No'].map((v) => (
+                <Radio key={v} name="trust" value={v} checked={trust === v} onChange={setTrust} label={v} />
+              ))}
+            </Question>
+
+            <Question label="3. What confused you most?">
+              {['Map colors', 'Suggestion cards', 'Nothing', 'Other'].map((v) => (
+                <Radio key={v} name="confused" value={v} checked={confusedMost === v} onChange={setConfusedMost} label={v} />
+              ))}
+            </Question>
+
+            <button
+              onClick={saveFeedback}
+              disabled={!clarity || !trust || !confusedMost}
+              className="w-full mt-3 bg-[#1D9E75] hover:bg-[#157a5a] disabled:opacity-50 text-white py-2 rounded transition-colors"
+            >
+              {saved ? 'Saved' : 'Submit Feedback'}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function Question({ label, children }) {
+  return (
+    <div className="mb-4">
+      <p className="text-sm text-[#e8e6e0] mb-2">{label}</p>
+      <div className="flex flex-wrap gap-2">{children}</div>
+    </div>
+  );
+}
+
+function Radio({ name, value, checked, onChange, label }) {
+  return (
+    <label className="text-xs text-[#c4c1b8] bg-[#11141d] border border-[#2a2d3a] rounded px-3 py-1.5 cursor-pointer">
+      <input
+        className="mr-2"
+        type="radio"
+        name={name}
+        value={value}
+        checked={checked}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {label}
+    </label>
+  );
+}
+
+===== FILE: frontend/src/components/PressureMap.jsx =====
+import React, { useEffect, useState } from 'react';
+import { MapContainer, TileLayer, GeoJSON, CircleMarker, Polyline } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import axios from 'axios';
+
+const statusColors = {
+  green: { color: '#1D9E75', opacity: 0.4 },
+  amber: { color: '#BA7517', opacity: 0.5 },
+  red: { color: '#E24B4A', opacity: 0.6 },
+};
+const ZONE_NAMES = [
+  "Northgate", "Riverside", "Central", "Eastfield",
+  "Harbourside", "Millbrook", "Queensway", "Docklands",
+  "Westend", "Highpark", "Southside", "Floodplain",
+  "Midtown", "Crossroads", "Lakeside", "Oldtown",
+  "Newbridge", "Marshgate", "Hilltop", "Ferndale",
+];
+
+export default function PressureMap({ zones, units, onZoneClick, mapAnimations = [] }) {
+  const [geojsonData, setGeojsonData] = useState(null);
+  const geoJsonLayerRef = React.useRef();
+  const previousStatusesRef = React.useRef({});
+
+  useEffect(() => {
+    if (zones) {
+      const newStatuses = {};
+      zones.forEach(z => {
+        newStatuses[z.id] = z.status;
+      });
+      previousStatusesRef.current = newStatuses;
+    }
+  }, [zones]);
+
+  useEffect(() => {
+    // Fetch geojson from backend (need to get it via static or direct file for now we assume it's exposed or we fetch from a known endpoint. Since backend doesn't have a specific endpoint for geojson, we can hardcode the grid or assume it's available).
+    // Let's hardcode a simple grid as requested if fetch fails or we can just fetch if we added an endpoint. Wait, the prompt said: "fetch zones.geojson from backend or hardcode a 4x5 grid of lat/lng rectangles around a city center like 51.5, -0.1 for London".
+    // I will fetch from backend since the backend already serves the file. Ah, backend main.py doesn't serve static files. 
+    // Let me generate the grid here to be safe and robust.
+    const generateGrid = () => {
+      const features = [];
+      const startLat = 40.775;
+      const startLng = -74.004;
+      let id = 1;
+      for (let row = 0; row < 5; row++) {
+        for (let col = 0; col < 4; col++) {
+          const lat = startLat - row * 0.01;
+          const lng = startLng + col * 0.012;
+          features.push({
+            type: "Feature",
+            properties: { id: id, name: ZONE_NAMES[id - 1] || `Zone ${id}` },
+            geometry: {
+              type: "Polygon",
+              coordinates: [[
+                [lng - 0.006, lat - 0.005],
+                [lng + 0.006, lat - 0.005],
+                [lng + 0.006, lat + 0.005],
+                [lng - 0.006, lat + 0.005],
+                [lng - 0.006, lat - 0.005]
+              ]]
+            }
+          });
+          id++;
+        }
+      }
+      return { type: "FeatureCollection", features };
+    };
+    
+    setGeojsonData(generateGrid());
+  }, []);
+
+  if (!geojsonData) return <div className="h-full w-full bg-[#1a1d27] flex items-center justify-center text-[#888780]">Loading map...</div>;
+
+  const styleFeature = (feature) => {
+    const zoneId = feature.properties.id;
+    const zone = zones?.find(z => z.id === zoneId);
+    const status = zone ? zone.status : 'green';
+    const { color, opacity } = statusColors[status] || statusColors.green;
+    
+    const prevStatus = previousStatusesRef.current[zoneId] || 'green';
+    const isPulsing = prevStatus === 'amber' && status === 'red';
+    
+    return {
+      fillColor: color,
+      weight: 0.5,
+      opacity: 1,
+      color: 'rgba(255, 255, 255, 0.9)',
+      fillOpacity: opacity,
+      className: isPulsing ? 'zone-polygon animate-pulse-red' : 'zone-polygon',
+    };
+  };
+
+  const onEachFeature = (feature, layer) => {
+    layer.on({
+      click: () => {
+        onZoneClick(feature.properties.id);
+      },
+      mouseover: (e) => {
+        const layer = e.target;
+        layer.setStyle({
+          weight: 3,
+          color: '#e8e6e0',
+          fillOpacity: 0.7,
+        });
+      },
+      mouseout: (e) => {
+        geoJsonLayerRef.current.resetStyle(e.target);
+      }
+    });
+  };
+
+
+  return (
+    <div className="h-full w-full rounded-lg overflow-hidden border border-[#2a2d3a]">
+      <MapContainer 
+        center={[40.755, -73.986]} 
+        zoom={13} 
+        style={{ height: '100%', width: '100%', backgroundColor: '#0f1117' }}
+        zoomControl={false}
+      >
+        <TileLayer
+          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        />
+        <GeoJSON 
+          data={geojsonData} 
+          style={styleFeature} 
+          onEachFeature={onEachFeature} 
+          ref={geoJsonLayerRef}
+        />
+        
+        {/* Render Units */}
+        {units && zones && units.map(unit => {
+          const zone = zones.find(z => z.id === unit.zone_id);
+          if (!zone) return null;
+          
+          // Add some jitter so units in same zone don't overlap perfectly
+          const jitterLat = (Math.random() - 0.5) * 0.004;
+          const jitterLng = (Math.random() - 0.5) * 0.004;
+          
+          return (
+            <CircleMarker
+              key={unit.id}
+              center={[zone.center_lat + jitterLat, zone.center_lng + jitterLng]}
+              radius={4}
+              pathOptions={{ fillColor: '#3b82f6', color: '#1d4ed8', weight: 1, fillOpacity: 0.8 }}
+            />
+          );
+        })}
+
+        {/* Render Unit Movement Animations */}
+        {mapAnimations.map(anim => {
+          const source = zones?.find(z => z.id === anim.sourceZoneId);
+          const target = zones?.find(z => z.id === anim.targetZoneId);
+          if (!source || !target) return null;
+          
+          return (
+            <Polyline
+              key={anim.id}
+              positions={[
+                [source.center_lat, source.center_lng],
+                [target.center_lat, target.center_lng]
+              ]}
+              pathOptions={{ 
+                color: '#3b82f6', 
+                weight: 3,
+                dashArray: '10, 10',
+                className: 'animate-[dash-flow_1.5s_linear_forwards]',
+                strokeDasharray: '10, 10'
+              }}
+            />
+          );
+        })}
+      </MapContainer>
+    </div>
+  );
+}
+
+===== FILE: frontend/src/components/SuggestionQueue.jsx =====
+import React, { useState, useEffect } from 'react';
+
+const formatTimeAgo = (seconds) => {
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ago`;
+};
+
+function SuggestionCard({ s, onAccept, onDismiss, zoneName }) {
+  const [elapsed, setElapsed] = useState(0);
+  const [isAccepting, setIsAccepting] = useState(false);
+
+  useEffect(() => {
+    const start = new Date(s.created_at).getTime();
+    const tick = () => {
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [s.created_at]);
+
+  const handleAccept = () => {
+    setIsAccepting(true);
+    setTimeout(() => {
+      onAccept(s.id);
+    }, 800); // Wait for flash (500ms) and collapse (300ms)
+  };
+
+  const isUrgent = elapsed > 60;
+  let urgencyBorder = '#1D9E75';
+  if (elapsed > 60) {
+    urgencyBorder = '#E24B4A';
+  } else if (elapsed >= 30) {
+    urgencyBorder = '#BA7517';
+  }
+  
+  let animationClass = 'animate-[slideIn_0.2s_ease-out]';
+  if (isAccepting) {
+    animationClass = 'animate-[acceptCollapse_0.8s_ease-out_forwards]';
+  } else if (isUrgent) {
+    // We only want it to shake occasionally or just when it hits 60s, but a constant shake might be annoying.
+    // CSS will handle it if we apply the shake class.
+    animationClass = 'shake-animation';
+  }
+
+  return (
+    <div
+      className={`bg-[#1a1d27] border ${isUrgent && !isAccepting ? 'border-[#E24B4A]' : 'border-[#2a2d3a]'} rounded-lg p-4 mb-3 transition-colors ${animationClass} overflow-hidden`}
+      style={{ borderLeft: `3px solid ${urgencyBorder}` }}
+    >
+      <div className="flex justify-between items-start mb-2">
+        <h3 className="text-[#e8e6e0] font-medium">Move {s.unit_ids.length} units: → {zoneName || `Zone ${s.zone_id}`}</h3>
+        <span className={`text-xs ${isUrgent ? 'text-[#E24B4A] font-bold' : 'text-[#888780]'}`}>
+          {formatTimeAgo(elapsed)}
+        </span>
+      </div>
+      
+      <div className="flex flex-wrap gap-2 mb-4">
+        {s.explanation && s.explanation.map((reason, i) => (
+          <span key={i} className="px-2 py-1 bg-[#2a2d3a] text-xs rounded text-[#e8e6e0]">
+            {reason}
+          </span>
+        ))}
+      </div>
+      
+      <div className="flex gap-2">
+        <button 
+          onClick={handleAccept}
+          disabled={isAccepting}
+          className="flex-1 bg-[#1D9E75] hover:bg-[#157a5a] disabled:bg-[#157a5a] disabled:opacity-50 text-white py-1.5 rounded text-sm transition-colors"
+        >
+          {isAccepting ? 'Accepted' : 'Accept'}
+        </button>
+        <button 
+          onClick={() => onDismiss(s.id)}
+          disabled={isAccepting}
+          className="flex-1 bg-[#2a2d3a] hover:bg-[#3a3d4a] disabled:opacity-50 text-white py-1.5 rounded text-sm transition-colors"
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default function SuggestionQueue({ suggestions, zones, onAccept, onDismiss, hasRedZone }) {
+  if (!suggestions || suggestions.length === 0) {
+    return (
+      <div className="bg-[#1a1d27] border border-[#2a2d3a] rounded-lg p-4 mb-4 text-[#888780] text-center text-sm">
+        System nominal — no action needed
+      </div>
+    );
+  }
+
+  return (
+    <div className={`mb-4 transition-colors duration-1000 p-2 -mx-2 rounded ${hasRedZone ? 'border border-[#E24B4A] bg-[#E24B4A]/10' : 'border border-transparent'}`}>
+      <h2 className="text-lg font-semibold text-[#e8e6e0] mb-3 px-2">Suggestion Queue</h2>
+      <div className="space-y-1">
+        {suggestions.map((s) => (
+          <SuggestionCard
+            key={s.id}
+            s={s}
+            onAccept={onAccept}
+            onDismiss={onDismiss}
+            zoneName={zones?.find((z) => z.id === s.zone_id)?.name}
+          />
+        ))}
+      </div>
+      <style>{`
+        @keyframes slideIn {
+          from { opacity: 0; transform: translateX(20px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+        
+        @keyframes acceptCollapse {
+          0% { background-color: #1a1d27; max-height: 200px; opacity: 1; }
+          20% { background-color: rgba(29, 158, 117, 0.4); max-height: 200px; opacity: 1; }
+          60% { background-color: rgba(29, 158, 117, 0.4); max-height: 200px; opacity: 1; margin-bottom: 0.75rem; padding: 1rem; }
+          100% { background-color: rgba(29, 158, 117, 0); max-height: 0px; opacity: 0; margin-bottom: 0; padding: 0; border-width: 0; }
+        }
+        
+        .shake-animation {
+          animation: shake 0.3s cubic-bezier(.36,.07,.19,.97) both;
+          animation-iteration-count: 3;
+        }
+
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(-3px); }
+          75% { transform: translateX(3px); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+===== FILE: frontend/src/components/UnitTracker.jsx =====
+import React from 'react';
+
+const statusColors = {
+  available: '#1D9E75', // green
+  en_route: '#BA7517',  // amber
+  deployed: '#E24B4A',  // red
+};
+
+export default function UnitTracker({ units }) {
+  // Sort: deployed first, then en_route, then available
+  const sortedUnits = [...(units || [])].sort((a, b) => {
+    const order = { deployed: 0, en_route: 1, available: 2 };
+    return order[a.status] - order[b.status];
+  });
+
+  return (
+    <div className="mb-4">
+      <h2 className="text-lg font-semibold text-[#e8e6e0] mb-3">Unit Tracker</h2>
+      <div className="bg-[#1a1d27] border border-[#2a2d3a] rounded-lg overflow-hidden">
+        <div className="max-h-[300px] overflow-y-auto">
+          <table className="w-full text-left text-sm text-[#e8e6e0]">
+            <thead className="bg-[#2a2d3a] sticky top-0 text-[#888780]">
+              <tr>
+                <th className="py-2 px-4 font-medium">Unit ID</th>
+                <th className="py-2 px-4 font-medium">Current Zone</th>
+                <th className="py-2 px-4 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#2a2d3a]">
+              {sortedUnits.map((u) => (
+                <tr key={u.id} className="hover:bg-[#2a2d3a]/50">
+                  <td className="py-2 px-4">Unit {u.id}</td>
+                  <td className="py-2 px-4">Zone {u.zone_id}</td>
+                  <td className="py-2 px-4 flex items-center gap-2">
+                    <span 
+                      className="w-2 h-2 rounded-full inline-block" 
+                      style={{ backgroundColor: statusColors[u.status] }}
+                    ></span>
+                    {u.status.replace('_', ' ')}
+                  </td>
+                </tr>
+              ))}
+              {sortedUnits.length === 0 && (
+                <tr>
+                  <td colSpan="3" className="py-4 text-center text-[#888780]">No units available</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+===== FILE: frontend/src/components/IncidentFeed.jsx =====
+import React from 'react';
+
+const formatTimeAgo = (isoString) => {
+  if (!isoString) return '';
+  const seconds = Math.floor((new Date() - new Date(isoString)) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  return 'A while ago';
+};
+
+const severityColors = {
+  low: '#1D9E75',    // green
+  medium: '#BA7517', // amber
+  high: '#E24B4A',   // red
+};
+
+export default function IncidentFeed({ incidents }) {
+  // Sort most recent first
+  const sortedIncidents = [...(incidents || [])].sort((a, b) => 
+    new Date(b.timestamp) - new Date(a.timestamp)
+  );
+
+  return (
+    <div className="mb-4">
+      <h2 className="text-lg font-semibold text-[#e8e6e0] mb-3">Incident Feed</h2>
+      <div className="bg-[#1a1d27] border border-[#2a2d3a] rounded-lg p-2 h-[200px] overflow-y-auto">
+        <div className="space-y-2">
+          {sortedIncidents.map((inc) => (
+            <div key={inc.id} className="flex justify-between items-center p-2 hover:bg-[#2a2d3a]/50 rounded">
+              <div className="flex flex-col">
+                <span className="text-[#e8e6e0] text-sm">Zone {inc.zone_id} • {inc.type}</span>
+                <span className="text-[#888780] text-xs">{formatTimeAgo(inc.timestamp)}</span>
+              </div>
+              <span 
+                className="px-2 py-1 rounded text-xs text-white"
+                style={{ backgroundColor: severityColors[inc.severity] || severityColors.low }}
+              >
+                {inc.severity}
+              </span>
+            </div>
+          ))}
+          {sortedIncidents.length === 0 && (
+            <div className="text-center text-[#888780] text-sm py-4">No incidents</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+===== FILE: frontend/src/components/ZoneDrillDown.jsx =====
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
+const statusColors = {
+  green: '#1D9E75',
+  amber: '#BA7517',
+  red: '#E24B4A',
+};
+
+export default function ZoneDrillDown({ zoneId, zoneData, onClose }) {
+  const [history, setHistory] = useState([]);
+
+  useEffect(() => {
+    if (zoneId) {
+      axios.get(`${API_BASE_URL}/history/${zoneId}`)
+        .then(res => {
+          // Format data for Recharts
+          const formatted = res.data.map(entry => ({
+            time: new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            pressure: entry.pressure_score,
+          }));
+          setHistory(formatted);
+        })
+        .catch(err => console.error('Error fetching history:', err));
+    }
+  }, [zoneId, zoneData]); // Re-fetch or update when zoneData changes if needed, but primarily driven by zoneId
+
+  if (!zoneId || !zoneData) return null;
+
+  const signals = zoneData.signals || {};
+  const statusColor = statusColors[zoneData.status] || statusColors.green;
+
+  return (
+    <div className="fixed top-0 right-0 h-full w-[400px] bg-[#1a1d27] border-l border-[#2a2d3a] shadow-2xl z-[1000] p-6 overflow-y-auto animate-[slideIn_0.3s_ease-out]">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-[#e8e6e0]">{zoneData.name || `Zone ${zoneId}`}</h2>
+          <span 
+            className="inline-block mt-1 px-2 py-1 rounded text-xs text-white uppercase font-semibold"
+            style={{ backgroundColor: statusColor }}
+          >
+            {zoneData.status}
+          </span>
+        </div>
+        <button 
+          onClick={onClose}
+          className="text-[#888780] hover:text-[#e8e6e0] text-2xl font-bold leading-none"
+        >
+          &times;
+        </button>
+      </div>
+
+      <div className="mb-6">
+        <h3 className="text-sm font-semibold text-[#888780] mb-3 uppercase tracking-wider">Pressure Trend (30 min)</h3>
+        <div className="h-[200px] bg-[#0f1117] rounded p-2">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={history}>
+              <XAxis dataKey="time" stroke="#888780" fontSize={10} tickMargin={5} />
+              <YAxis domain={[0, 100]} stroke="#888780" fontSize={10} />
+              <Tooltip 
+                contentStyle={{ backgroundColor: '#1a1d27', borderColor: '#2a2d3a', color: '#e8e6e0' }}
+                itemStyle={{ color: statusColor }}
+              />
+              <Line type="monotone" dataKey="pressure" stroke={statusColor} strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="mb-6 p-4 rounded-lg border border-[#2a2d3a] bg-[#11141d]">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-[#cfcdbf] uppercase tracking-wider">AI Summary</h3>
+          <div className="flex items-center gap-1 text-[11px] text-[#8ab4f8]">
+            <span aria-hidden="true">◆</span>
+            <span>Powered by Gemini</span>
+          </div>
+        </div>
+        <p className="text-sm leading-relaxed text-[#e8e6e0]">
+          {zoneData.ai_summary || (zoneData.explanation?.[0] ?? "No summary available yet.")}
+        </p>
+      </div>
+
+      <div>
+        <h3 className="text-sm font-semibold text-[#888780] mb-3 uppercase tracking-wider">Live Signals</h3>
+        <div className="space-y-4">
+          <SignalBar label="ER Wait Delta (hrs)" value={signals.er_wait_delta} max={5} />
+          <SignalBar label="Ambulance Count" value={signals.ambulance_count} max={10} />
+          <SignalBar label="Volunteer Availability" value={signals.volunteer_availability * 100} max={100} unit="%" />
+          <SignalBar label="Adjacent Incidents" value={signals.incident_density_adjacent} max={5} />
+          <SignalBar label="Crowd Density" value={signals.crowd_density * 100} max={100} unit="%" />
+          <SignalBar label="Time of Day" value={signals.time_of_day} max={24} />
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes slideIn {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function SignalBar({ label, value, max, unit = '' }) {
+  // Normalize percentage for width
+  let percentage = (Number(value) / max) * 100;
+  if (percentage < 0) percentage = 0;
+  if (percentage > 100) percentage = 100;
+  
+  // Choose color based on percentage (rough heuristic)
+  let color = '#1D9E75';
+  if (percentage > 50) color = '#BA7517';
+  if (percentage > 80) color = '#E24B4A';
+
+  return (
+    <div>
+      <div className="flex justify-between text-xs text-[#e8e6e0] mb-1">
+        <span>{label}</span>
+        <span>{typeof value === 'number' ? value.toFixed(1) : value}{unit}</span>
+      </div>
+      <div className="h-2 w-full bg-[#2a2d3a] rounded-full overflow-hidden">
+        <div 
+          className="h-full rounded-full transition-all duration-500" 
+          style={{ width: `${percentage}%`, backgroundColor: color }}
+        ></div>
+      </div>
+    </div>
+  );
+}
+
+===== FILE: frontend/src/components/ComparisonPanel.jsx =====
+import React from 'react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+
+export default function ComparisonPanel({ isOpen, onClose }) {
+  if (!isOpen) return null;
+
+  const data = [
+    { name: 'Without TriageFlow', time: 11, color: '#E24B4A' },
+    { name: 'With TriageFlow', time: 4, color: '#1D9E75' },
+  ];
+
+  return (
+    <div className="fixed bottom-0 left-0 w-full bg-[#1a1d27] border-t border-[#2a2d3a] shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-[2000] p-8 animate-[slideUp_0.4s_ease-out]">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-[#e8e6e0]">Impact Analysis: Response Times</h2>
+          <button 
+            onClick={onClose}
+            className="text-[#888780] hover:text-[#e8e6e0] text-3xl font-bold leading-none"
+          >
+            &times;
+          </button>
+        </div>
+
+        <div className="h-[250px] bg-[#0f1117] rounded-lg p-6 mb-6 border border-[#2a2d3a]">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data} layout="vertical" margin={{ top: 0, right: 30, left: 40, bottom: 0 }}>
+              <XAxis type="number" stroke="#888780" unit=" min" />
+              <YAxis dataKey="name" type="category" stroke="#e8e6e0" width={150} tick={{ fill: '#e8e6e0' }} />
+              <Tooltip 
+                cursor={{ fill: '#2a2d3a', opacity: 0.4 }}
+                contentStyle={{ backgroundColor: '#1a1d27', borderColor: '#2a2d3a', color: '#e8e6e0' }}
+                formatter={(value) => [`${value} minutes`, 'Avg Response Time']}
+              />
+              <Bar dataKey="time" radius={[0, 4, 4, 0]} barSize={40}>
+                {data.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.color} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="text-center">
+          <p className="text-xl text-[#e8e6e0] font-medium tracking-wide">
+            In a flood, that <span className="text-[#E24B4A] font-bold">7-minute gap</span> is the difference.
+          </p>
+        </div>
+      </div>
+      <style>{`
+        @keyframes slideUp {
+          from { transform: translateY(100%); }
+          to { transform: translateY(0); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+===== FILE: frontend/src/components/PostCrisisReviewPanel.jsx =====
+import React, { useEffect, useMemo, useState } from 'react';
+import { onValue, ref } from 'firebase/database';
+import { db } from '../firebase';
+
+const formatTimeAgo = (isoString) => {
+  if (!isoString) return '';
+  const seconds = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  return `${Math.floor(minutes / 60)}h ago`;
+};
+
+export default function PostCrisisReviewPanel({ isOpen, onClose, zones = [] }) {
+  const [records, setRecords] = useState([]);
+  const [firebaseAvailable, setFirebaseAvailable] = useState(Boolean(db));
+
+  useEffect(() => {
+    if (!isOpen || !db) {
+      return;
+    }
+    const auditRef = ref(db, '/audit_log');
+    const unsubscribe = onValue(
+      auditRef,
+      (snapshot) => {
+        const data = snapshot.val() || {};
+        const rows = Object.entries(data).map(([id, entry]) => ({
+          id,
+          ...entry,
+        }));
+        setRecords(rows);
+      },
+      (error) => {
+        console.error('Failed to read Firebase audit log', error);
+        setFirebaseAvailable(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [isOpen]);
+
+  const sortedRecords = useMemo(
+    () =>
+      [...records].sort(
+        (a, b) =>
+          new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime()
+      ),
+    [records]
+  );
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed top-0 right-0 h-full w-[420px] bg-[#1a1d27] border-l border-[#2a2d3a] shadow-2xl z-[2100] p-6 overflow-y-auto animate-[slideIn_0.3s_ease-out]">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-bold text-[#e8e6e0]">Post-Crisis Review</h2>
+        <button
+          onClick={onClose}
+          className="text-[#888780] hover:text-[#e8e6e0] text-2xl font-bold leading-none"
+        >
+          &times;
+        </button>
+      </div>
+      <p className="text-xs text-[#888780] mb-4">Source: Firebase Realtime Database</p>
+
+      {!firebaseAvailable && (
+        <div className="bg-[#2b1f1f] border border-[#5c2d2d] rounded p-3 text-sm text-[#f3c4c4] mb-4">
+          Firebase is not configured in frontend env variables.
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {sortedRecords.map((item) => {
+          const zoneName = zones.find((z) => z.id === item.zone)?.name || `Zone ${item.zone}`;
+          return (
+            <div key={item.id} className="bg-[#11141d] border border-[#2a2d3a] rounded p-3">
+              <div className="flex justify-between items-start gap-3">
+                <p className="text-sm text-[#e8e6e0] font-medium">
+                  {item.action} • {zoneName}
+                </p>
+                <span className="text-[11px] text-[#888780]">{formatTimeAgo(item.timestamp)}</span>
+              </div>
+              <p className="text-xs text-[#b8b6af] mt-1">
+                Units moved: {item.units_moved ?? 0} | Pressure: {item.pressure_score_at_time ?? 0}
+              </p>
+            </div>
+          );
+        })}
+        {sortedRecords.length === 0 && (
+          <div className="text-sm text-[#888780] text-center py-8">
+            No persisted audit entries yet.
+          </div>
+        )}
+      </div>
+
+      <style>{`
+        @keyframes slideIn {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+===== FILE: frontend/src/components/SDGPanel.jsx =====
+import React, { useEffect, useMemo, useState } from 'react';
+import { jsPDF } from 'jspdf';
+import { onValue, ref } from 'firebase/database';
+import { db } from '../firebase';
+
+const nowString = () => new Date().toLocaleString();
+
+export default function SDGPanel({
+  isOpen,
+  onClose,
+  minutesSaved,
+  zonesProtected,
+  unitsOptimallyPositioned,
+  zones = [],
+}) {
+  const [auditRecords, setAuditRecords] = useState([]);
+  const [firebaseAvailable, setFirebaseAvailable] = useState(Boolean(db));
+
+  useEffect(() => {
+    if (!isOpen || !db) return;
+    const auditRef = ref(db, '/audit_log');
+    const unsubscribe = onValue(
+      auditRef,
+      (snapshot) => {
+        const data = snapshot.val() || {};
+        const rows = Object.entries(data).map(([id, entry]) => ({ id, ...entry }));
+        setAuditRecords(rows);
+      },
+      (error) => {
+        console.error('Failed to read Firebase audit log for SDG panel', error);
+        setFirebaseAvailable(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [isOpen]);
+
+  const sortedAudit = useMemo(
+    () =>
+      [...auditRecords].sort(
+        (a, b) =>
+          new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime()
+      ),
+    [auditRecords]
+  );
+
+  const downloadImpactReport = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text('TriageFlow Impact Report', 14, 18);
+
+    doc.setFontSize(10);
+    doc.text(`Generated: ${nowString()}`, 14, 25);
+    doc.text('Aligned with UN SDG 11 and SDG 3', 14, 31);
+
+    doc.setFontSize(12);
+    doc.text('Session Metrics', 14, 42);
+    doc.setFontSize(10);
+    doc.text(`Estimated minutes saved: ${minutesSaved}`, 14, 49);
+    doc.text(`Zones protected from critical overload: ${zonesProtected}`, 14, 55);
+    doc.text(`Units optimally positioned: ${unitsOptimallyPositioned}`, 14, 61);
+
+    doc.setFontSize(12);
+    doc.text('Audit Log', 14, 73);
+
+    const startY = 79;
+    const rowHeight = 7;
+    const xCols = [14, 54, 102, 137, 171];
+    doc.setFontSize(9);
+    doc.text('Time', xCols[0], startY);
+    doc.text('Action', xCols[1], startY);
+    doc.text('Zone', xCols[2], startY);
+    doc.text('Units', xCols[3], startY);
+    doc.text('Pressure', xCols[4], startY);
+    doc.line(14, startY + 1, 196, startY + 1);
+
+    let y = startY + rowHeight;
+    const rows = sortedAudit.slice(0, 22);
+    rows.forEach((item) => {
+      if (y > 280) return;
+      const zoneName = zones.find((z) => z.id === item.zone)?.name || `Zone ${item.zone ?? '-'}`;
+      const ts = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : '-';
+      doc.text(String(ts), xCols[0], y);
+      doc.text(String(item.action ?? '-'), xCols[1], y);
+      doc.text(String(zoneName), xCols[2], y);
+      doc.text(String(item.units_moved ?? 0), xCols[3], y);
+      doc.text(String(item.pressure_score_at_time ?? 0), xCols[4], y);
+      y += rowHeight;
+    });
+
+    if (sortedAudit.length > rows.length) {
+      doc.text(`... and ${sortedAudit.length - rows.length} more records`, 14, Math.min(y + 4, 286));
+    }
+
+    doc.save('triageflow-impact-report.pdf');
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed top-0 right-0 h-full w-[420px] bg-[#1a1d27] border-l border-[#2a2d3a] shadow-2xl z-[2200] p-6 overflow-y-auto animate-[slideIn_0.3s_ease-out]">
+      <div className="flex justify-between items-center mb-5">
+        <h2 className="text-xl font-bold text-[#e8e6e0]">Impact</h2>
+        <button
+          onClick={onClose}
+          className="text-[#888780] hover:text-[#e8e6e0] text-2xl font-bold leading-none"
+        >
+          &times;
+        </button>
+      </div>
+
+      <p className="text-sm text-[#d9d6cc] mb-4">
+        Aligned with UN SDG 11 (Sustainable Cities) and SDG 3 (Good Health)
+      </p>
+
+      <div className="space-y-3 mb-5">
+        <Metric label="Estimated minutes saved this session" value={minutesSaved} />
+        <Metric label="Zones protected from critical overload" value={zonesProtected} />
+        <Metric label="Units optimally positioned" value={unitsOptimallyPositioned} />
+      </div>
+
+      <blockquote className="border-l-2 border-[#4d658f] pl-3 text-sm text-[#b8b6af] mb-5">
+        "Make cities inclusive, safe, resilient, and sustainable."
+      </blockquote>
+
+      {!firebaseAvailable && (
+        <p className="text-xs text-[#f3c4c4] mb-3">
+          Firebase not configured. Report will include current metrics only.
+        </p>
+      )}
+
+      <button
+        onClick={downloadImpactReport}
+        className="w-full bg-[#3b82f6] hover:bg-[#2563eb] text-white px-4 py-2 rounded font-medium transition-colors"
+      >
+        Download Impact Report
+      </button>
+
+      <style>{`
+        @keyframes slideIn {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function Metric({ label, value }) {
+  return (
+    <div className="bg-[#11141d] border border-[#2a2d3a] rounded p-3">
+      <p className="text-xs uppercase tracking-wide text-[#888780]">{label}</p>
+      <p className="text-2xl font-semibold text-[#e8e6e0] mt-1">{value}</p>
+    </div>
+  );
+}
+
+===== FILE: frontend/src/components/ErrorBoundary.jsx =====
+import React from 'react';
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("Uncaught error:", error, errorInfo);
+  }
+
+  componentDidUpdate(prevProps, prevState) {
+    if (this.state.hasError) {
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          height: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#0f1117',
+          color: '#e8e6e0',
+          fontFamily: 'sans-serif'
+        }}>
+          <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>System restarting...</h2>
+          <div className="spinner" style={{
+            border: '3px solid rgba(255,255,255,0.1)',
+            borderLeftColor: '#3b82f6',
+            borderRadius: '50%',
+            width: '32px',
+            height: '32px',
+            animation: 'spin 1s linear infinite'
+          }}></div>
+          <style>{`
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+          `}</style>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+export default ErrorBoundary;
+

@@ -1,0 +1,725 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 1,
+        "name": "Northgate",
+        "center_lat": 40.775,
+        "center_lng": -74.004
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.01,
+              40.77
+            ],
+            [
+              -73.998,
+              40.77
+            ],
+            [
+              -73.998,
+              40.78
+            ],
+            [
+              -74.01,
+              40.78
+            ],
+            [
+              -74.01,
+              40.77
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 2,
+        "name": "Riverside",
+        "center_lat": 40.775,
+        "center_lng": -73.992
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -73.998,
+              40.77
+            ],
+            [
+              -73.986,
+              40.77
+            ],
+            [
+              -73.986,
+              40.78
+            ],
+            [
+              -73.998,
+              40.78
+            ],
+            [
+              -73.998,
+              40.77
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 3,
+        "name": "Central",
+        "center_lat": 40.775,
+        "center_lng": -73.98
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -73.986,
+              40.77
+            ],
+            [
+              -73.974,
+              40.77
+            ],
+            [
+              -73.974,
+              40.78
+            ],
+            [
+              -73.986,
+              40.78
+            ],
+            [
+              -73.986,
+              40.77
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 4,
+        "name": "Eastfield",
+        "center_lat": 40.775,
+        "center_lng": -73.968
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -73.974,
+              40.77
+            ],
+            [
+              -73.962,
+              40.77
+            ],
+            [
+              -73.962,
+              40.78
+            ],
+            [
+              -73.974,
+              40.78
+            ],
+            [
+              -73.974,
+              40.77
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 5,
+        "name": "Harbourside",
+        "center_lat": 40.765,
+        "center_lng": -74.004
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.01,
+              40.76
+            ],
+            [
+              -73.998,
+              40.76
+            ],
+            [
+              -73.998,
+              40.77
+            ],
+            [
+              -74.01,
+              40.77
+            ],
+            [
+              -74.01,
+              40.76
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 6,
+        "name": "Millbrook",
+        "center_lat": 40.765,
+        "center_lng": -73.992
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -73.998,
+              40.76
+            ],
+            [
+              -73.986,
+              40.76
+            ],
+            [
+              -73.986,
+              40.77
+            ],
+            [
+              -73.998,
+              40.77
+            ],
+            [
+              -73.998,
+              40.76
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 7,
+        "name": "Queensway",
+        "center_lat": 40.765,
+        "center_lng": -73.98
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -73.986,
+              40.76
+            ],
+            [
+              -73.974,
+              40.76
+            ],
+            [
+              -73.974,
+              40.77
+            ],
+            [
+              -73.986,
+              40.77
+            ],
+            [
+              -73.986,
+              40.76
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 8,
+        "name": "Docklands",
+        "center_lat": 40.765,
+        "center_lng": -73.968
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -73.974,
+              40.76
+            ],
+            [
+              -73.962,
+              40.76
+            ],
+            [
+              -73.962,
+              40.77
+            ],
+            [
+              -73.974,
+              40.77
+            ],
+            [
+              -73.974,
+              40.76
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 9,
+        "name": "Westend",
+        "center_lat": 40.755,
+        "center_lng": -74.004
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.01,
+              40.75
+            ],
+            [
+              -73.998,
+              40.75
+            ],
+            [
+              -73.998,
+              40.76
+            ],
+            [
+              -74.01,
+              40.76
+            ],
+            [
+              -74.01,
+              40.75
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 10,
+        "name": "Highpark",
+        "center_lat": 40.755,
+        "center_lng": -73.992
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -73.998,
+              40.75
+            ],
+            [
+              -73.986,
+              40.75
+            ],
+            [
+              -73.986,
+              40.76
+            ],
+            [
+              -73.998,
+              40.76
+            ],
+            [
+              -73.998,
+              40.75
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 11,
+        "name": "Southside",
+        "center_lat": 40.755,
+        "center_lng": -73.98
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -73.986,
+              40.75
+            ],
+            [
+              -73.974,
+              40.75
+            ],
+            [
+              -73.974,
+              40.76
+            ],
+            [
+              -73.986,
+              40.76
+            ],
+            [
+              -73.986,
+              40.75
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 12,
+        "name": "Floodplain",
+        "center_lat": 40.755,
+        "center_lng": -73.968
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -73.974,
+              40.75
+            ],
+            [
+              -73.962,
+              40.75
+            ],
+            [
+              -73.962,
+              40.76
+            ],
+            [
+              -73.974,
+              40.76
+            ],
+            [
+              -73.974,
+              40.75
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 13,
+        "name": "Midtown",
+        "center_lat": 40.745,
+        "center_lng": -74.004
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.01,
+              40.74
+            ],
+            [
+              -73.998,
+              40.74
+            ],
+            [
+              -73.998,
+              40.75
+            ],
+            [
+              -74.01,
+              40.75
+            ],
+            [
+              -74.01,
+              40.74
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 14,
+        "name": "Crossroads",
+        "center_lat": 40.745,
+        "center_lng": -73.992
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -73.998,
+              40.74
+            ],
+            [
+              -73.986,
+              40.74
+            ],
+            [
+              -73.986,
+              40.75
+            ],
+            [
+              -73.998,
+              40.75
+            ],
+            [
+              -73.998,
+              40.74
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 15,
+        "name": "Lakeside",
+        "center_lat": 40.745,
+        "center_lng": -73.98
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -73.986,
+              40.74
+            ],
+            [
+              -73.974,
+              40.74
+            ],
+            [
+              -73.974,
+              40.75
+            ],
+            [
+              -73.986,
+              40.75
+            ],
+            [
+              -73.986,
+              40.74
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 16,
+        "name": "Oldtown",
+        "center_lat": 40.745,
+        "center_lng": -73.968
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -73.974,
+              40.74
+            ],
+            [
+              -73.962,
+              40.74
+            ],
+            [
+              -73.962,
+              40.75
+            ],
+            [
+              -73.974,
+              40.75
+            ],
+            [
+              -73.974,
+              40.74
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 17,
+        "name": "Newbridge",
+        "center_lat": 40.735,
+        "center_lng": -74.004
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.01,
+              40.73
+            ],
+            [
+              -73.998,
+              40.73
+            ],
+            [
+              -73.998,
+              40.74
+            ],
+            [
+              -74.01,
+              40.74
+            ],
+            [
+              -74.01,
+              40.73
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 18,
+        "name": "Marshgate",
+        "center_lat": 40.735,
+        "center_lng": -73.992
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -73.998,
+              40.73
+            ],
+            [
+              -73.986,
+              40.73
+            ],
+            [
+              -73.986,
+              40.74
+            ],
+            [
+              -73.998,
+              40.74
+            ],
+            [
+              -73.998,
+              40.73
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 19,
+        "name": "Hilltop",
+        "center_lat": 40.735,
+        "center_lng": -73.98
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -73.986,
+              40.73
+            ],
+            [
+              -73.974,
+              40.73
+            ],
+            [
+              -73.974,
+              40.74
+            ],
+            [
+              -73.986,
+              40.74
+            ],
+            [
+              -73.986,
+              40.73
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 20,
+        "name": "Ferndale",
+        "center_lat": 40.735,
+        "center_lng": -73.968
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -73.974,
+              40.73
+            ],
+            [
+              -73.962,
+              40.73
+            ],
+            [
+              -73.962,
+              40.74
+            ],
+            [
+              -73.974,
+              40.74
+            ],
+            [
+              -73.974,
+              40.73
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}
