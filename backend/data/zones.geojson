@@ -1,0 +1,105 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "id": 1, "name": "MG Road", "center_lat": 12.9759, "center_lng": 77.6066 },
+      "geometry": { "type": "Point", "coordinates": [77.6066, 12.9759] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 2, "name": "Indiranagar", "center_lat": 12.9719, "center_lng": 77.6412 },
+      "geometry": { "type": "Point", "coordinates": [77.6412, 12.9719] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 3, "name": "Koramangala", "center_lat": 12.9352, "center_lng": 77.6245 },
+      "geometry": { "type": "Point", "coordinates": [77.6245, 12.9352] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 4, "name": "HSR Layout", "center_lat": 12.9116, "center_lng": 77.6387 },
+      "geometry": { "type": "Point", "coordinates": [77.6387, 12.9116] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 5, "name": "Whitefield", "center_lat": 12.9698, "center_lng": 77.7499 },
+      "geometry": { "type": "Point", "coordinates": [77.7499, 12.9698] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 6, "name": "Marathahalli", "center_lat": 12.9592, "center_lng": 77.6974 },
+      "geometry": { "type": "Point", "coordinates": [77.6974, 12.9592] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 7, "name": "Bellandur", "center_lat": 12.9255, "center_lng": 77.6760 },
+      "geometry": { "type": "Point", "coordinates": [77.676, 12.9255] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 8, "name": "Sarjapur Road", "center_lat": 12.9121, "center_lng": 77.6850 },
+      "geometry": { "type": "Point", "coordinates": [77.685, 12.9121] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 9, "name": "Jayanagar", "center_lat": 12.9250, "center_lng": 77.5938 },
+      "geometry": { "type": "Point", "coordinates": [77.5938, 12.925] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 10, "name": "JP Nagar", "center_lat": 12.9077, "center_lng": 77.5850 },
+      "geometry": { "type": "Point", "coordinates": [77.585, 12.9077] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 11, "name": "Banashankari", "center_lat": 12.9255, "center_lng": 77.5468 },
+      "geometry": { "type": "Point", "coordinates": [77.5468, 12.9255] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 12, "name": "Vijayanagar", "center_lat": 12.9719, "center_lng": 77.5266 },
+      "geometry": { "type": "Point", "coordinates": [77.5266, 12.9719] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 13, "name": "Malleshwaram", "center_lat": 13.0076, "center_lng": 77.5646 },
+      "geometry": { "type": "Point", "coordinates": [77.5646, 13.0076] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 14, "name": "Rajajinagar", "center_lat": 12.9913, "center_lng": 77.5537 },
+      "geometry": { "type": "Point", "coordinates": [77.5537, 12.9913] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 15, "name": "Hebbal", "center_lat": 13.0358, "center_lng": 77.5970 },
+      "geometry": { "type": "Point", "coordinates": [77.597, 13.0358] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 16, "name": "RT Nagar", "center_lat": 13.0214, "center_lng": 77.5959 },
+      "geometry": { "type": "Point", "coordinates": [77.5959, 13.0214] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 17, "name": "KR Puram", "center_lat": 13.0070, "center_lng": 77.6957 },
+      "geometry": { "type": "Point", "coordinates": [77.6957, 13.007] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 18, "name": "Yelahanka", "center_lat": 13.1007, "center_lng": 77.5963 },
+      "geometry": { "type": "Point", "coordinates": [77.5963, 13.1007] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 19, "name": "Peenya", "center_lat": 13.0285, "center_lng": 77.5190 },
+      "geometry": { "type": "Point", "coordinates": [77.519, 13.0285] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": 20, "name": "Electronic City", "center_lat": 12.8399, "center_lng": 77.6770 },
+      "geometry": { "type": "Point", "coordinates": [77.677, 12.8399] }
+    }
+  ]
+}

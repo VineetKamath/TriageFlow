@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "your-firebase-project-id",
+    "deploy": "triageflow-d3644"
+  },
+  "targets": {},
+  "etags": {}
+}

@@ -1,0 +1,52 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  :root {
+    --bg-base: #F0F4FA;
+    --surface-1: #FFFFFF;
+    --surface-2: #F8FAFF;
+    --surface-3: #EEF3FF;
+    --border-glass: rgba(99, 120, 160, 0.15);
+    --color-active: #1A73E8;
+    --color-positive: #1E8E6E;
+    --color-warning: #E37400;
+    --color-critical: #D93025;
+    --color-text-1: #1C2B4A;
+    --color-text-2: #5F6B7C;
+    --color-text-3: #9AA3B0;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', sans-serif;
+    background: var(--bg-base);
+    color: var(--color-text-1);
+  }
+}
+
+@keyframes zone-critical {
+  0%, 100% { fill-opacity: 0.22; }
+  50% { fill-opacity: 0.40; }
+}
+
+/* Leaflet Overrides */
+.leaflet-container {
+  background: var(--surface-2) !important;
+}
+
+.operations-bg {
+  background-image: radial-gradient(circle, rgba(99,120,160,0.12) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
